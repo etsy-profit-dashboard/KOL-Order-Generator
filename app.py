@@ -626,6 +626,70 @@ def resolve_postal(gd, sub, address, wms_postal=""):
     return "", "NO_POSTAL"
 
 
+
+def address_master_override(geo, address, wms_postal=""):
+    """Find a stronger province/district signal from the full consignee address.
+
+    WMS Receipt Province/City can be wrong or mixed.  Before trusting them,
+    check the address master itself using district/subdistrict names and ZIP.
+    Only return a correction when the evidence is unambiguous.
+    """
+    address_norm = norm_thai(address)
+    if not address_norm:
+        return None, None, ""
+
+    postal = wms_postal or extract_postal_code(address)
+
+    # 1) Exact official district name appearing in the full address.
+    # Prefer the longest name to avoid short-token false matches.
+    district_hits = []
+    for (pkey, dkey), g in geo.groupby(["pkey", "dkey"], sort=False):
+        dth = clean_text(g.iloc[0]["districtNameTh"])
+        dnorm = norm_thai(dth)
+        if dnorm and len(dnorm) >= 4 and dnorm in address_norm:
+            district_hits.append((len(dnorm), pkey, dkey))
+    if district_hits:
+        district_hits.sort(reverse=True)
+        top_len = district_hits[0][0]
+        top = [x for x in district_hits if x[0] == top_len]
+        pairs = {(x[1], x[2]) for x in top}
+        if len(pairs) == 1:
+            pkey, dkey = next(iter(pairs))
+            return pkey, dkey, "ADDRESS_DISTRICT_EXACT"
+
+    # 2) Exact official subdistrict/khwaeng name in the address.
+    sub_hits = []
+    for (pkey, dkey, skey), g in geo.groupby(["pkey", "dkey", "skey"], sort=False):
+        sth = clean_text(g.iloc[0]["subdistrictNameTh"])
+        snorm = norm_thai(sth)
+        if snorm and len(snorm) >= 4 and snorm in address_norm:
+            sub_hits.append((len(snorm), pkey, dkey, skey))
+    if sub_hits:
+        sub_hits.sort(reverse=True)
+        top_len = sub_hits[0][0]
+        top = [x for x in sub_hits if x[0] == top_len]
+        pairs = {(x[1], x[2]) for x in top}
+        if len(pairs) == 1:
+            pkey, dkey = next(iter(pairs))
+            return pkey, dkey, "ADDRESS_SUBDISTRICT_EXACT"
+
+    # 3) ZIP can correct a completely wrong WMS province. If ZIP maps to one
+    # province/district in the embedded master, use it as a strong fallback.
+    if postal:
+        gz = geo[geo["postalCode"] == postal]
+        if not gz.empty:
+            provinces = [x for x in gz["pkey"].dropna().unique() if x]
+            if len(provinces) == 1:
+                pkey = provinces[0]
+                pairs = list(gz[["pkey", "dkey"]].drop_duplicates().itertuples(index=False, name=None))
+                pairs = [(p, d) for p, d in pairs if p and d]
+                if len(pairs) == 1:
+                    return pkey, pairs[0][1], "ZIP_UNIQUE_PROVINCE_DISTRICT"
+                return pkey, None, "ZIP_UNIQUE_PROVINCE"
+
+    return None, None, ""
+
+
 def resolve_row(row, geo, province_master, district_master):
     prov_raw = clean_location_name(row.get("Receipt Province", ""))
     city_raw = clean_location_name(row.get("Receipt City", ""))
@@ -653,7 +717,24 @@ def resolve_row(row, geo, province_master, district_master):
     address = address_as or address_named
     wms_postal = get_wms_postal(row)
 
+    # IMPORTANT: WMS location fields are not always reliable.  Validate them
+    # against Consignee Addr + the embedded address master before accepting them.
+    override_pkey, override_dkey, override_status = address_master_override(
+        geo, address, wms_postal
+    )
+
     province, pstatus = resolve_province(geo, prov_raw, city_raw, area_raw, address)
+
+    # Address/master evidence wins when it gives an unambiguous province.
+    if override_pkey:
+        p_rows = geo[geo["pkey"] == override_pkey]
+        if not p_rows.empty:
+            province = {
+                "key": override_pkey,
+                "th": p_rows.iloc[0]["provinceNameTh"],
+                "en": p_rows.iloc[0]["provinceNameEn"],
+            }
+            pstatus = override_status
 
     if province is None:
         postal = wms_postal or extract_postal_code(address)
@@ -668,6 +749,18 @@ def resolve_row(row, geo, province_master, district_master):
     gprov = geo[geo["pkey"] == pkey].copy()
 
     district, dstatus = resolve_district(gprov, city_raw, area_raw, address)
+
+    # If address/master produced a specific district, use it instead of a
+    # conflicting Receipt City/Area value.
+    if override_dkey and override_pkey == pkey:
+        d_rows = gprov[gprov["dkey"] == override_dkey]
+        if not d_rows.empty:
+            district = {
+                "key": override_dkey,
+                "th": d_rows.iloc[0]["districtNameTh"],
+                "en": d_rows.iloc[0]["districtNameEn"],
+            }
+            dstatus = override_status
 
     if district is None:
         province_out = make_bilingual(province.get("th", ""), province.get("en", ""))
