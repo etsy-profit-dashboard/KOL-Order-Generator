@@ -447,22 +447,34 @@ def build_subdistricts(gprov):
     return out
 
 
+def _address_embedded_match(items, address):
+    """Find the longest master name embedded in the full address text."""
+    addr_norm = norm_thai(address)
+    if not addr_norm:
+        return None
+    hits = [item for item in items if item.get("key") and item["key"] in addr_norm]
+    if not hits:
+        return None
+    return max(hits, key=lambda x: len(x["key"]))
+
+
 def resolve_province(geo, prov_raw, city_raw, area_raw, address):
     provinces = build_provinces(geo)
     parts = extract_address_components(address)
-    addr_norm = norm_thai(address)
 
-    p = exact_match(provinces, prov_raw)
-    if p is not None:
-        return p, "province_exact"
-
+    # Address is the fallback/correction source. If it explicitly contains a
+    # province, prefer it over a blank or incorrect WMS province.
     p = exact_match(provinces, parts["province"])
     if p is not None:
         return p, "address_province"
 
-    embedded = [p for p in provinces if p["key"] and p["key"] in addr_norm]
-    if embedded:
-        return max(embedded, key=lambda x: len(x["key"])), "address_province_embedded"
+    p = _address_embedded_match(provinces, address)
+    if p is not None:
+        return p, "address_province_embedded"
+
+    p = exact_match(provinces, prov_raw)
+    if p is not None:
+        return p, "province_exact"
 
     for candidate in [city_raw, area_raw]:
         p = exact_match(provinces, candidate)
@@ -479,10 +491,9 @@ def resolve_province(geo, prov_raw, city_raw, area_raw, address):
         if p is not None:
             return p, f"address_province_fuzzy_auto_{score:.2f}" if score >= AUTO_ACCEPT_FUZZY_THRESHOLD else f"address_province_fuzzy_check_{score:.2f}"
 
-    if not prov_raw:
-        p, score, _ = fuzzy_match(provinces, [city_raw, area_raw])
-        if p is not None:
-            return p, f"fallback_province_fuzzy_auto_{score:.2f}" if score >= AUTO_ACCEPT_FUZZY_THRESHOLD else f"fallback_province_fuzzy_check_{score:.2f}"
+    p, score, _ = fuzzy_match(provinces, [city_raw, area_raw])
+    if p is not None:
+        return p, f"fallback_province_fuzzy_auto_{score:.2f}" if score >= AUTO_ACCEPT_FUZZY_THRESHOLD else f"fallback_province_fuzzy_check_{score:.2f}"
 
     return None, "province_not_found"
 
@@ -496,10 +507,24 @@ def resolve_district(gprov, city_raw, area_raw, address):
     if norm_thai(city_raw) == "เมือง" and province_name:
         city_raw = "เมือง" + province_name
 
+    # 1) The full AS/address is the correction source.
+    # If it contains a valid district, use it BEFORE Receipt City/Area.
+    # This is important when WMS supplies an incorrect value such as
+    # "สี่พระยา บางรัก" in Receipt City.
+    d = exact_match(districts, parts["district"])
+    if d is not None:
+        return d, "address_district_exact"
+
+    # 2) Many WMS addresses do not include the words "เขต" / "อำเภอ".
+    # Search the complete AS text for a district name from the master.
+    d = _address_embedded_match(districts, address)
+    if d is not None:
+        return d, "address_district_embedded"
+
+    # 3) Only when AS cannot identify a district, use WMS City/Area.
     for candidate, status in [
         (city_raw, "city_exact"),
         (area_raw, "area_exact"),
-        (parts["district"], "address_district_exact"),
     ]:
         d = exact_match(districts, candidate)
         if d is not None:
@@ -605,7 +630,27 @@ def resolve_row(row, geo, province_master, district_master):
     prov_raw = clean_location_name(row.get("Receipt Province", ""))
     city_raw = clean_location_name(row.get("Receipt City", ""))
     area_raw = clean_location_name(row.get("Receipt Area", ""))
-    address = clean_text(row.get("Consignee Addr", ""))
+
+    # ---------------------------------------------------------
+    # FULL ADDRESS FALLBACK (WMS column AS)
+    # ---------------------------------------------------------
+    # AS / Consignee Addr is the authoritative fallback source when
+    # Receipt Province / City / Area is blank or contains an invalid
+    # combination.  We deliberately keep the full address intact because
+    # it may contain an unlabelled district name, e.g.
+    # "114 อาคารสิริกร สี่พระยา บางรัก กทม 10500".
+    #
+    # Prefer the named WMS column when available, but also support the
+    # fixed AS position (45th Excel column) for exports whose header mapping
+    # has changed.
+    address_named = clean_text(row.get("Consignee Addr", ""))
+    address_as = ""
+    try:
+        if len(row.index) >= 45:
+            address_as = clean_text(row.iloc[44])
+    except Exception:
+        address_as = ""
+    address = address_as or address_named
     wms_postal = get_wms_postal(row)
 
     province, pstatus = resolve_province(geo, prov_raw, city_raw, area_raw, address)
