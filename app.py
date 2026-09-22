@@ -687,6 +687,7 @@ def resolve_row(row, geo, province_master, district_master):
 
 from copy import copy
 from datetime import datetime
+import openpyxl
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
