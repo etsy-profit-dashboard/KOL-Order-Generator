@@ -1422,13 +1422,39 @@ buffer = io.BytesIO()
 # Build the main KOL sheet from the embedded known-good template.
 kol_wb = write_kol_into_template(kol_df)
 
-# Add the diagnostic sheets to the same workbook.
+# Add diagnostic sheets directly with openpyxl.
+# IMPORTANT: pandas.DataFrame.to_excel() expects a path or ExcelWriter,
+# not an existing openpyxl Workbook. Passing kol_wb directly causes
+# the Streamlit error seen on Python 3.14 / pandas.
+def _write_df_to_openpyxl_sheet(wb, df, sheet_name):
+    if sheet_name in wb.sheetnames:
+        del wb[sheet_name]
+    ws_diag = wb.create_sheet(sheet_name)
+    if df is None:
+        df = pd.DataFrame()
+    # Header
+    for c, col in enumerate(df.columns, start=1):
+        ws_diag.cell(1, c, str(col))
+    # Values
+    for r, row_values in enumerate(df.itertuples(index=False, name=None), start=2):
+        for c, value in enumerate(row_values, start=1):
+            if pd.isna(value):
+                value = None
+            elif hasattr(value, "to_pydatetime"):
+                value = value.to_pydatetime()
+            ws_diag.cell(r, c, value)
+    ws_diag.freeze_panes = "A2"
+    if ws_diag.max_column:
+        for c in range(1, ws_diag.max_column + 1):
+            ws_diag.column_dimensions[openpyxl.utils.get_column_letter(c)].width = min(40, max(12, len(str(ws_diag.cell(1, c).value or "")) + 2))
+    return ws_diag
+
 address_result = pd.concat([
     raw.reset_index(drop=True),
     result_df.reset_index(drop=True),
 ], axis=1)
-# openpyxl can safely append the other sheets to the template workbook.
-address_result.to_excel(kol_wb, index=False, sheet_name="Address_Result")
+_write_df_to_openpyxl_sheet(kol_wb, address_result, "Address_Result")
+
 if not issues.empty:
     check_df = pd.concat([
         raw.loc[issues.index].reset_index(drop=True),
@@ -1436,13 +1462,13 @@ if not issues.empty:
     ], axis=1)
 else:
     check_df = pd.DataFrame(columns=list(raw.columns) + list(result_df.columns))
-check_df.to_excel(kol_wb, index=False, sheet_name="Check_Required")
+_write_df_to_openpyxl_sheet(kol_wb, check_df, "Check_Required")
+
 if not missing_weight_df.empty:
-    missing_weight_df.to_excel(kol_wb, index=False, sheet_name="Weight_Check")
+    weight_check_df = missing_weight_df
 else:
-    pd.DataFrame(columns=["row","orderSn","skuCode","barcode","quantity"]).to_excel(
-        kol_wb, index=False, sheet_name="Weight_Check"
-    )
+    weight_check_df = pd.DataFrame(columns=["row","orderSn","skuCode","barcode","quantity"])
+_write_df_to_openpyxl_sheet(kol_wb, weight_check_df, "Weight_Check")
 
 # Remove any duplicate old diagnostic sheets if present and ensure main sheet first.
 main_ws = kol_wb["ไฟล์อัพโหลด KOL ระบบเก่า"]
