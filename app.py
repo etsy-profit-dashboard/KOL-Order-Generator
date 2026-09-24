@@ -1363,6 +1363,41 @@ def write_kol_into_template(kol_df):
     style_kol_sheet(ws)
     return wb
 
+def append_dataframe_sheet(wb, df, sheet_name):
+    """Write a pandas DataFrame into an existing openpyxl workbook.
+
+    pandas.DataFrame.to_excel() expects a file path or an ExcelWriter.
+    Passing an openpyxl Workbook directly causes the ValueError seen during
+    KOL export on Streamlit Cloud.
+    """
+    from openpyxl.utils.dataframe import dataframe_to_rows
+
+    if sheet_name in wb.sheetnames:
+        del wb[sheet_name]
+
+    ws = wb.create_sheet(sheet_name)
+
+    for row in dataframe_to_rows(df, index=False, header=True):
+        ws.append(list(row))
+
+    if ws.max_row >= 1 and ws.max_column >= 1:
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+
+    for col_idx in range(1, ws.max_column + 1):
+        letter = get_column_letter(col_idx)
+        sample_values = [
+            ws.cell(r, col_idx).value
+            for r in range(1, min(ws.max_row, 100) + 1)
+        ]
+        max_len = max(
+            [len(str(v)) for v in sample_values if v is not None] + [10]
+        )
+        ws.column_dimensions[letter].width = min(max(max_len + 2, 10), 60)
+
+    return ws
+
+
 # =========================================================
 # UI
 # =========================================================
@@ -1474,7 +1509,9 @@ if not issues.empty:
     with st.expander("⚠️ รายการที่ควรตรวจสอบก่อนใช้งาน", expanded=True):
         preview_cols = [
             "จังหวัด", "เขต/อำเภอ", "รหัสไปรษณีย์",
-            "สถานะตรวจสอบ", "จังหวัดสถานะ", "อำเภอสถานะ", "ตำบลสถานะ"
+            "รหัสไปรษณีย์จาก WMS",
+            "สถานะตรวจสอบ", "จังหวัดสถานะ", "อำเภอสถานะ",
+            "ตำบลสถานะ", "รหัสไปรษณีย์สถานะ"
         ]
         preview = pd.concat([
             raw.loc[issues.index, [
@@ -1504,8 +1541,10 @@ address_result = pd.concat([
     raw.reset_index(drop=True),
     result_df.reset_index(drop=True),
 ], axis=1)
-# openpyxl can safely append the other sheets to the template workbook.
-address_result.to_excel(kol_wb, index=False, sheet_name="Address_Result")
+# Add diagnostic sheets using openpyxl directly.
+# IMPORTANT: do not call DataFrame.to_excel(kol_wb, ...).
+append_dataframe_sheet(kol_wb, address_result, "Address_Result")
+
 if not issues.empty:
     check_df = pd.concat([
         raw.loc[issues.index].reset_index(drop=True),
@@ -1513,12 +1552,15 @@ if not issues.empty:
     ], axis=1)
 else:
     check_df = pd.DataFrame(columns=list(raw.columns) + list(result_df.columns))
-check_df.to_excel(kol_wb, index=False, sheet_name="Check_Required")
+append_dataframe_sheet(kol_wb, check_df, "Check_Required")
+
 if not missing_weight_df.empty:
-    missing_weight_df.to_excel(kol_wb, index=False, sheet_name="Weight_Check")
+    append_dataframe_sheet(kol_wb, missing_weight_df, "Weight_Check")
 else:
-    pd.DataFrame(columns=["row","orderSn","skuCode","barcode","quantity"]).to_excel(
-        kol_wb, index=False, sheet_name="Weight_Check"
+    append_dataframe_sheet(
+        kol_wb,
+        pd.DataFrame(columns=["row", "orderSn", "skuCode", "barcode", "quantity"]),
+        "Weight_Check",
     )
 
 # Remove any duplicate old diagnostic sheets if present and ensure main sheet first.
