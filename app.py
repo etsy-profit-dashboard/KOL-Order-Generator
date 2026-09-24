@@ -1371,6 +1371,7 @@ def append_dataframe_sheet(wb, df, sheet_name):
     KOL export on Streamlit Cloud.
     """
     from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.utils import get_column_letter
 
     if sheet_name in wb.sheetnames:
         del wb[sheet_name]
