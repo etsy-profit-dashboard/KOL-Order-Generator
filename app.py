@@ -1093,199 +1093,228 @@ def workbook_bytes(wb):
     return buffer.getvalue()
 
 
-# =========================================================
-# UI
-# =========================================================
 
-st.title("[📦](https://fonts.gstatic.com/s/e/notoemoji/17.0/1f4e6/32.png) WMS → KOL Excel Generator")
-st.caption("แปลงข้อมูล WMS → ใส่ลงไฟล์ต้นแบบ KOL ระบบใหม่ → สร้างไฟล์ KOL ระบบเก่าแบบไม่มีสูตร Excel")
+# =========================================================
+# UI / MENU
+# =========================================================
+st.title("📦 WMS Tools")
+st.caption("เครื่องมือสำหรับแปลงและตรวจสอบไฟล์ WMS / KOL")
 
 with st.sidebar:
-    st.header("ตั้งค่า")
-
-    st.success("Address master: ฝังอยู่ในโปรแกรมแล้ว")
-    st.info(
-        "ใช้งานโดยอัปโหลดเฉพาะไฟล์ WMS เท่านั้น\n\n"
-        "ไฟล์ Address master ถูกเก็บไว้ภายใน app.py "
-        "ไม่ต้องอัปโหลดทุกครั้ง"
+    st.header("เมนู")
+    menu = st.radio(
+        "เลือกฟังก์ชัน",
+        [
+            "WMS → KOL",
+            "ตรวจสอบ Excel",
+            "WMS → Shipment",
+            "ตรวจสอบรหัสไปรษณีย์",
+        ],
+        index=0,
     )
 
-    st.info(
-        "ไฟล์ที่ 1: ใช้ไฟล์ต้นแบบ KOL ระบบใหม่ โดยวางข้อมูล WMS ที่แปลงแล้วลงในชีท "
-        "'ข้อมูลออเดอร์' และคงสูตร/รูปแบบของไฟล์ต้นแบบไว้\n\n"
-        "ไฟล์ที่ 2: สร้างชีท 'ไฟล์อัพโหลด KOL ระบบเก่า' แยกออกมา โดยแปลงสูตรเป็นค่าข้อมูลจริง"
+if menu == "WMS → KOL":
+    st.subheader("WMS → KOL Excel Generator")
+    st.caption(
+        "แปลงข้อมูล WMS → ใส่ลงไฟล์ต้นแบบ KOL ระบบใหม่ → "
+        "สร้างไฟล์ KOL ระบบเก่าแบบไม่มีสูตร Excel"
     )
 
-uploaded = st.file_uploader(
-    "1) อัปโหลดไฟล์ Excel จาก WMS",
-    type=["xlsx", "xls"]
-)
+    with st.sidebar:
+        st.success("Address master: ฝังอยู่ในโปรแกรมแล้ว")
+        st.info(
+            "ใช้งานโดยอัปโหลดเฉพาะไฟล์ WMS เท่านั้น\n\n"
+            "ไฟล์ Address master ถูกเก็บไว้ภายใน app.py "
+            "ไม่ต้องอัปโหลดทุกครั้ง"
+        )
+        st.info(
+            "ไฟล์ที่ 1: ใช้ไฟล์ต้นแบบ KOL ระบบใหม่ โดยวางข้อมูล WMS ที่แปลงแล้วลงในชีท "
+            "'ข้อมูลออเดอร์' และคงสูตร/รูปแบบของไฟล์ต้นแบบไว้\n\n"
+            "ไฟล์ที่ 2: สร้างชีท 'ไฟล์อัพโหลด KOL ระบบเก่า' แยกออกมา โดยแปลงสูตรเป็นค่าข้อมูลจริง"
+        )
 
-if uploaded is None:
-    st.markdown("""
-### วิธีใช้งาน
-1. อัปโหลดไฟล์ **Outbound Detail Export จาก WMS**
-2. ระบบตรวจสอบ `Receipt Province`, `Receipt City`, `Receipt Area`
-3. ตรวจสอบ `Consignee Addr`
-4. ตรวจสอบ `Receiver Zipcode`
-5. สร้าง `จังหวัด`, `เขต/อำเภอ`, `รหัสไปรษณีย์`
-6. นำข้อมูลที่ได้ไปใส่ในชีท **ข้อมูลออเดอร์** ของไฟล์ต้นแบบโดยอัตโนมัติ
-7. สร้างไฟล์ **KOL ระบบใหม่** 1 ไฟล์ และ **KOL ระบบเก่าแบบไม่มีสูตร** อีก 1 ไฟล์
-""")
-    st.stop()
+    uploaded = st.file_uploader(
+        "1) อัปโหลดไฟล์ Excel จาก WMS",
+        type=["xlsx", "xls"]
+    )
 
-try:
-    raw = pd.read_excel(uploaded, dtype=str).fillna("")
-except Exception as e:
-    st.error(f"อ่านไฟล์ไม่สำเร็จ: {e}")
-    st.stop()
+    if uploaded is None:
+        st.markdown("""
+    ### วิธีใช้งาน
+    1. อัปโหลดไฟล์ **Outbound Detail Export จาก WMS**
+    2. ระบบตรวจสอบ `Receipt Province`, `Receipt City`, `Receipt Area`
+    3. ตรวจสอบ `Consignee Addr`
+    4. ตรวจสอบ `Receiver Zipcode`
+    5. สร้าง `จังหวัด`, `เขต/อำเภอ`, `รหัสไปรษณีย์`
+    6. นำข้อมูลที่ได้ไปใส่ในชีท **ข้อมูลออเดอร์** ของไฟล์ต้นแบบโดยอัตโนมัติ
+    7. สร้างไฟล์ **KOL ระบบใหม่** 1 ไฟล์ และ **KOL ระบบเก่าแบบไม่มีสูตร** อีก 1 ไฟล์
+    """)
+        st.stop()
 
-required = ["Receipt Province", "Receipt City", "Receipt Area", "Consignee Addr"]
-missing = [c for c in required if c not in raw.columns]
-if missing:
-    st.error("ไม่พบคอลัมน์ที่จำเป็น: " + ", ".join(missing))
-    st.stop()
+    try:
+        raw = pd.read_excel(uploaded, dtype=str).fillna("")
+    except Exception as e:
+        st.error(f"อ่านไฟล์ไม่สำเร็จ: {e}")
+        st.stop()
 
-if raw.empty:
-    st.warning("[⚠️](https://fonts.gstatic.com/s/e/notoemoji/17.0/26a0_fe0f/32.png) ไฟล์ Excel ไม่มีข้อมูล Order")
-    st.stop()
+    required = ["Receipt Province", "Receipt City", "Receipt Area", "Consignee Addr"]
+    missing = [c for c in required if c not in raw.columns]
+    if missing:
+        st.error("ไม่พบคอลัมน์ที่จำเป็น: " + ", ".join(missing))
+        st.stop()
 
-try:
-    master, province_master, district_master = prepare_master(load_address_master())
-except Exception as e:
-    st.error(f"อ่าน address master ไม่สำเร็จ: {e}")
-    st.stop()
+    if raw.empty:
+        st.warning("[⚠️](https://fonts.gstatic.com/s/e/notoemoji/17.0/26a0_fe0f/32.png) ไฟล์ Excel ไม่มีข้อมูล Order")
+        st.stop()
 
-try:
-    geo = build_geo_tables(load_postal_data())
-except Exception as e:
-    st.error(f"ไม่สามารถโหลดฐานข้อมูลรหัสไปรษณีย์ได้ในขณะนี้ ({e})")
-    st.stop()
+    try:
+        master, province_master, district_master = prepare_master(load_address_master())
+    except Exception as e:
+        st.error(f"อ่าน address master ไม่สำเร็จ: {e}")
+        st.stop()
 
-with st.spinner("กำลังประมวลผลข้อมูล WMS..."):
-    results = [
-        resolve_row(row, geo, province_master, district_master)
-        for _, row in raw.iterrows()
-    ]
-    result_df = pd.DataFrame(results)
+    try:
+        geo = build_geo_tables(load_postal_data())
+    except Exception as e:
+        st.error(f"ไม่สามารถโหลดฐานข้อมูลรหัสไปรษณีย์ได้ในขณะนี้ ({e})")
+        st.stop()
 
-insert_at = list(raw.columns).index("Receipt Area") + 1
-final = pd.concat(
-    [
-        raw.iloc[:, :insert_at].copy(),
-        result_df[["จังหวัด", "เขต/อำเภอ", "รหัสไปรษณีย์"]],
-        raw.iloc[:, insert_at:].copy(),
-    ],
-    axis=1,
-)
-
-if "Receiver Mobile Number" in final.columns:
-    final["Receiver Mobile Number"] = final["Receiver Mobile Number"].apply(clean_mobile_number)
-
-final["รหัสไปรษณีย์"] = (
-    final["รหัสไปรษณีย์"].fillna("").astype(str)
-    .str.extract(r"(\d{5})", expand=False).fillna("")
-)
-
-st.success(f"ประมวลผลแล้ว {len(final):,} แถว")
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("ทั้งหมด", f"{len(final):,}")
-c2.metric("สำเร็จ", f"{(result_df['สถานะตรวจสอบ'] == 'OK').sum():,}")
-c3.metric("ต้องตรวจสอบ", f"{(result_df['สถานะตรวจสอบ'] != 'OK').sum():,}")
-c4.metric("รหัสไปรษณีย์ว่าง", f"{result_df['รหัสไปรษณีย์'].fillna('').astype(str).str.strip().eq('').sum():,}")
-
-empty_district = result_df["เขต/อำเภอ"].fillna("").astype(str).str.strip().eq("")
-empty_province = result_df["จังหวัด"].fillna("").astype(str).str.strip().eq("")
-empty_postal = result_df["รหัสไปรษณีย์"].fillna("").astype(str).str.strip().eq("")
-issues = result_df[result_df["สถานะตรวจสอบ"] != "OK"]
-
-issue_indices = sorted(
-    set(issues.index)
-    | set(result_df.index[empty_district])
-    | set(result_df.index[empty_province])
-    | set(result_df.index[empty_postal])
-)
-
-if issue_indices:
-    with st.expander("[⚠️](https://fonts.gstatic.com/s/e/notoemoji/17.0/26a0_fe0f/32.png) รายการที่ควรตรวจสอบก่อนใช้งาน", expanded=True):
-        preview_cols = [
-            "จังหวัด", "เขต/อำเภอ", "รหัสไปรษณีย์",
-            "สถานะตรวจสอบ", "จังหวัดสถานะ", "อำเภอสถานะ",
-            "ตำบลสถานะ", "รหัสไปรษณีย์สถานะ",
+    with st.spinner("กำลังประมวลผลข้อมูล WMS..."):
+        results = [
+            resolve_row(row, geo, province_master, district_master)
+            for _, row in raw.iterrows()
         ]
-        left_cols = ["Receipt Province", "Receipt City", "Receipt Area", "Consignee Addr"]
-        if "Receiver Zipcode" in raw.columns:
-            left_cols.append("Receiver Zipcode")
+        result_df = pd.DataFrame(results)
 
-        issue_preview = pd.concat(
-            [
-                raw.loc[issue_indices, left_cols].reset_index(drop=True),
-                result_df.loc[issue_indices, preview_cols].reset_index(drop=True),
-            ],
-            axis=1,
-        )
-        st.dataframe(issue_preview, use_container_width=True, hide_index=True)
+    insert_at = list(raw.columns).index("Receipt Area") + 1
+    final = pd.concat(
+        [
+            raw.iloc[:, :insert_at].copy(),
+            result_df[["จังหวัด", "เขต/อำเภอ", "รหัสไปรษณีย์"]],
+            raw.iloc[:, insert_at:].copy(),
+        ],
+        axis=1,
+    )
 
-st.subheader("ตัวอย่างข้อมูลที่แปลงแล้ว")
-show_cols = [
-    "ERP No.", "Receipt Province", "Receipt City", "Receipt Area",
-    "จังหวัด", "เขต/อำเภอ", "รหัสไปรษณีย์",
-    "Product Code", "Product Barcode", "Allocated Qty",
-]
-st.dataframe(
-    final[[c for c in show_cols if c in final.columns]].head(100),
-    use_container_width=True,
-    hide_index=True,
-)
+    if "Receiver Mobile Number" in final.columns:
+        final["Receiver Mobile Number"] = final["Receiver Mobile Number"].apply(clean_mobile_number)
 
-try:
-    template_source = find_kol_template(None)
+    final["รหัสไปรษณีย์"] = (
+        final["รหัสไปรษณีย์"].fillna("").astype(str)
+        .str.extract(r"(\d{5})", expand=False).fillna("")
+    )
 
-    with st.spinner("กำลังสร้างไฟล์ KOL ระบบใหม่และ KOL ระบบเก่า..."):
-        # Load once for both outputs.
-        template_wb = load_workbook(template_source)
+    st.success(f"ประมวลผลแล้ว {len(final):,} แถว")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("ทั้งหมด", f"{len(final):,}")
+    c2.metric("สำเร็จ", f"{(result_df['สถานะตรวจสอบ'] == 'OK').sum():,}")
+    c3.metric("ต้องตรวจสอบ", f"{(result_df['สถานะตรวจสอบ'] != 'OK').sum():,}")
+    c4.metric("รหัสไปรษณีย์ว่าง", f"{result_df['รหัสไปรษณีย์'].fillna('').astype(str).str.strip().eq('').sum():,}")
 
-        # File 1: full template + converted WMS data in 'ข้อมูลออเดอร์'.
-        new_kol_wb = write_order_data_to_template(template_source, final)
-        _patch_new_kol_weight_formulas(new_kol_wb, len(final))
-        new_kol_bytes = workbook_bytes(new_kol_wb)
+    empty_district = result_df["เขต/อำเภอ"].fillna("").astype(str).str.strip().eq("")
+    empty_province = result_df["จังหวัด"].fillna("").astype(str).str.strip().eq("")
+    empty_postal = result_df["รหัสไปรษณีย์"].fillna("").astype(str).str.strip().eq("")
+    issues = result_df[result_df["สถานะตรวจสอบ"] != "OK"]
 
-        # File 2: standalone old KOL sheet, values only.
-        old_kol_wb = create_old_kol_file(template_wb, final)
-        old_kol_bytes = workbook_bytes(old_kol_wb)
+    issue_indices = sorted(
+        set(issues.index)
+        | set(result_df.index[empty_district])
+        | set(result_df.index[empty_province])
+        | set(result_df.index[empty_postal])
+    )
 
-    st.success("สร้างไฟล์เรียบร้อยแล้ว")
+    if issue_indices:
+        with st.expander("[⚠️](https://fonts.gstatic.com/s/e/notoemoji/17.0/26a0_fe0f/32.png) รายการที่ควรตรวจสอบก่อนใช้งาน", expanded=True):
+            preview_cols = [
+                "จังหวัด", "เขต/อำเภอ", "รหัสไปรษณีย์",
+                "สถานะตรวจสอบ", "จังหวัดสถานะ", "อำเภอสถานะ",
+                "ตำบลสถานะ", "รหัสไปรษณีย์สถานะ",
+            ]
+            left_cols = ["Receipt Province", "Receipt City", "Receipt Area", "Consignee Addr"]
+            if "Receiver Zipcode" in raw.columns:
+                left_cols.append("Receiver Zipcode")
 
-    col1, col2 = st.columns(2)
+            issue_preview = pd.concat(
+                [
+                    raw.loc[issue_indices, left_cols].reset_index(drop=True),
+                    result_df.loc[issue_indices, preview_cols].reset_index(drop=True),
+                ],
+                axis=1,
+            )
+            st.dataframe(issue_preview, use_container_width=True, hide_index=True)
 
-    with col1:
-        st.download_button(
-            "[⬇️](https://fonts.gstatic.com/s/e/notoemoji/17.0/2b07_fe0f/32.png) ดาวน์โหลดไฟล์ 1 — KOL ระบบใหม่",
-            data=new_kol_bytes,
-            file_name="KOL_New_WMS_Updated.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True,
-        )
-        st.caption(
-            "ใช้ไฟล์ต้นแบบเดิม + ใส่ข้อมูล WMS ลงชีท 'ข้อมูลออเดอร์' "
-            "โดยคงสูตร Excel และรูปแบบของต้นแบบ"
-        )
+    st.subheader("ตัวอย่างข้อมูลที่แปลงแล้ว")
+    show_cols = [
+        "ERP No.", "Receipt Province", "Receipt City", "Receipt Area",
+        "จังหวัด", "เขต/อำเภอ", "รหัสไปรษณีย์",
+        "Product Code", "Product Barcode", "Allocated Qty",
+    ]
+    st.dataframe(
+        final[[c for c in show_cols if c in final.columns]].head(100),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    with col2:
-        st.download_button(
-            "[⬇️](https://fonts.gstatic.com/s/e/notoemoji/17.0/2b07_fe0f/32.png) ดาวน์โหลดไฟล์ 2 — KOL ระบบเก่า (ไม่มีสูตร)",
-            data=old_kol_bytes,
-            file_name="KOL_Old_Upload_No_Formulas.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="secondary",
-            use_container_width=True,
-        )
-        st.caption(
-            "แยกเฉพาะชีท 'ไฟล์อัพโหลด KOL ระบบเก่า' และแปลงสูตรเป็นค่าข้อมูลจริง "
-            "ไม่มีสูตร Excel"
-        )
+    try:
+        template_source = find_kol_template(None)
 
-except Exception as e:
-    st.error(f"สร้างไฟล์ KOL ไม่สำเร็จ: {e}")
-    st.exception(e)  
+        with st.spinner("กำลังสร้างไฟล์ KOL ระบบใหม่และ KOL ระบบเก่า..."):
+            # Load once for both outputs.
+            template_wb = load_workbook(template_source)
+
+            # File 1: full template + converted WMS data in 'ข้อมูลออเดอร์'.
+            new_kol_wb = write_order_data_to_template(template_source, final)
+            _patch_new_kol_weight_formulas(new_kol_wb, len(final))
+            new_kol_bytes = workbook_bytes(new_kol_wb)
+
+            # File 2: standalone old KOL sheet, values only.
+            old_kol_wb = create_old_kol_file(template_wb, final)
+            old_kol_bytes = workbook_bytes(old_kol_wb)
+
+        st.success("สร้างไฟล์เรียบร้อยแล้ว")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.download_button(
+                "[⬇️](https://fonts.gstatic.com/s/e/notoemoji/17.0/2b07_fe0f/32.png) ดาวน์โหลดไฟล์ 1 — KOL ระบบใหม่",
+                data=new_kol_bytes,
+                file_name="KOL_New_WMS_Updated.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+            )
+            st.caption(
+                "ใช้ไฟล์ต้นแบบเดิม + ใส่ข้อมูล WMS ลงชีท 'ข้อมูลออเดอร์' "
+                "โดยคงสูตร Excel และรูปแบบของต้นแบบ"
+            )
+
+        with col2:
+            st.download_button(
+                "[⬇️](https://fonts.gstatic.com/s/e/notoemoji/17.0/2b07_fe0f/32.png) ดาวน์โหลดไฟล์ 2 — KOL ระบบเก่า (ไม่มีสูตร)",
+                data=old_kol_bytes,
+                file_name="KOL_Old_Upload_No_Formulas.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="secondary",
+                use_container_width=True,
+            )
+            st.caption(
+                "แยกเฉพาะชีท 'ไฟล์อัพโหลด KOL ระบบเก่า' และแปลงสูตรเป็นค่าข้อมูลจริง "
+                "ไม่มีสูตร Excel"
+            )
+
+    except Exception as e:
+        st.error(f"สร้างไฟล์ KOL ไม่สำเร็จ: {e}")
+        st.exception(e)  
+
+elif menu == "ตรวจสอบ Excel":
+    st.subheader("🔍 ตรวจสอบ Excel")
+    st.info("เมนูนี้เตรียมไว้สำหรับเพิ่มฟังก์ชันเปรียบเทียบไฟล์ Excel เช่น Order, SKU, จำนวน, ที่อยู่ และรหัสไปรษณีย์")
+
+elif menu == "WMS → Shipment":
+    st.subheader("🚚 WMS → Shipment")
+    st.info("เมนูนี้เตรียมไว้สำหรับเพิ่มฟังก์ชันสร้างไฟล์ Shipment โดยจะไม่กระทบฟังก์ชัน WMS → KOL เดิม")
+
+elif menu == "ตรวจสอบรหัสไปรษณีย์":
+    st.subheader("📮 ตรวจสอบรหัสไปรษณีย์")
+    st.info("เมนูนี้เตรียมไว้สำหรับเพิ่มฟังก์ชันตรวจสอบรหัสไปรษณีย์จาก WMS กับฐานข้อมูลและไฟล์อ้างอิง")
