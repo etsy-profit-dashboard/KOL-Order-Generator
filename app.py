@@ -127,7 +127,7 @@ def clean_mobile_number(val):
 def valid_postal(x):
     if x is None or pd.isna(x):
         return ""
-    m = re.search(r"(?\<!\d)(\d{5})(?!\d)", clean_text(x))
+    m = re.search(r"(?<!\d)(\d{5})(?!\d)", clean_text(x))
     return m.group(1) if m else ""
 
 
