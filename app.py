@@ -131,8 +131,25 @@ def valid_postal(x):
     return m.group(1) if m else ""
 
 
+def extract_postal_codes(address):
+    """Return all 5-digit postal-code candidates found in an address, in order."""
+    if address is None or pd.isna(address):
+        return []
+    text = clean_text(address)
+    if not text:
+        return []
+    return list(dict.fromkeys(re.findall(r"(?<!\d)(\d{5})(?!\d)", text)))
+
+
 def extract_postal_code(address):
-    return valid_postal(address)
+    """Return the last postal-code candidate in an address.
+
+    Some WMS addresses contain unrelated 5-digit numbers before the real
+    postal code (for example an internal code followed by the Thai address).
+    The last candidate is therefore safer than taking the first match.
+    """
+    codes = extract_postal_codes(address)
+    return codes[-1] if codes else ""
 
 
 def get_wms_postal(row):
@@ -571,35 +588,22 @@ def resolve_subdistrict(gd, area_raw, city_raw, address):
 
 
 def resolve_postal(gd, sub, address, wms_postal=""):
+    """Resolve postal code without changing the rest of the address logic.
+
+    Important rule for WMS data:
+    - A WMS zipcode is trusted when it is a valid postal code for the
+      matched DISTRICT. This preserves operational postal codes that are
+      valid for the district even when a public subdistrict table assigns
+      a different code to one subdistrict.
+    - If the WMS zipcode is not valid for the district, use a postal code
+      from the address only when it is also valid for that district.
+    - Otherwise, if the matched subdistrict has exactly one postal code,
+      use that value to correct the WMS zipcode.
+    - If there is not enough evidence, keep the WMS value and mark it
+      unverified rather than guessing.
     """
-    Resolve postal code while validating the WMS zipcode.
 
-    Priority:
-    1) If the address contains an explicit 5-digit zipcode, use it.
-       If WMS zipcode is different, treat WMS as incorrect and correct it.
-    2) If no zipcode is written in the address, validate WMS zipcode
-       against the matched subdistrict.
-    3) If the subdistrict has no single zipcode, validate against the
-       district when the district has exactly one zipcode.
-    4) If there is not enough information to verify the WMS zipcode,
-       keep the WMS value but mark it as unverified.
-    """
-    address_postal = extract_postal_code(address)
-
-    # ---------------------------------------------------------
-    # 1. Explicit zipcode in the actual receiver address.
-    #    This is stronger evidence than the WMS zipcode.
-    # ---------------------------------------------------------
-    if address_postal:
-        if wms_postal and wms_postal != address_postal:
-            return address_postal, "WMS_MISMATCH_ADDRESS_CORRECTED"
-        if wms_postal:
-            return address_postal, "WMS_VALIDATED_ADDRESS"
-        return address_postal, "ADDRESS_EXPLICIT"
-
-    # ---------------------------------------------------------
-    # Build the postal codes belonging to the matched subdistrict.
-    # ---------------------------------------------------------
+    # Postal codes belonging to the matched subdistrict.
     sub_vals = []
     if sub is not None:
         sub_vals = sorted({
@@ -608,51 +612,67 @@ def resolve_postal(gd, sub, address, wms_postal=""):
             if re.fullmatch(r"\d{5}", str(x).strip())
         })
 
-    # ---------------------------------------------------------
-    # 2. Validate WMS zipcode against the matched subdistrict.
-    # ---------------------------------------------------------
-    if wms_postal:
-        if wms_postal in sub_vals:
-            return wms_postal, "WMS_VALIDATED_SUBDISTRICT"
-
-        # If the subdistrict has exactly one known zipcode and WMS
-        # does not match it, correct the WMS value automatically.
-        if len(sub_vals) == 1:
-            return sub_vals[0], "WMS_MISMATCH_SUBDISTRICT_CORRECTED"
-
-    # ---------------------------------------------------------
-    # District-level fallback.
-    # ---------------------------------------------------------
+    # Postal codes belonging to the matched district.
+    # `gd` already contains only the resolved province + district.
     district_vals = sorted({
         str(x).strip()
         for x in gd["postalCode"].dropna()
         if re.fullmatch(r"\d{5}", str(x).strip())
     })
 
+    address_candidates = extract_postal_codes(address)
+    address_in_district = [x for x in address_candidates if x in district_vals]
+    address_in_subdistrict = [x for x in address_candidates if x in sub_vals]
+
     # ---------------------------------------------------------
-    # 3. Validate/correct WMS using a district with one unique zipcode.
+    # 1. WMS zipcode is the primary source when it is valid for
+    #    the resolved district. Do NOT let an unrelated 5-digit
+    #    number in the address override a valid WMS zipcode.
     # ---------------------------------------------------------
     if wms_postal:
         if wms_postal in district_vals:
+            if address_in_district and wms_postal in address_in_district:
+                return wms_postal, "WMS_VALIDATED_ADDRESS"
             return wms_postal, "WMS_VALIDATED_DISTRICT"
 
+        # WMS is not valid for this district. If the address contains
+        # a postal code that is valid for the same district, use it.
+        if address_in_subdistrict:
+            return address_in_subdistrict[-1], "WMS_MISMATCH_ADDRESS_SUBDISTRICT_CORRECTED"
+        if address_in_district:
+            return address_in_district[-1], "WMS_MISMATCH_ADDRESS_CORRECTED"
+
+        # If the matched subdistrict has one unique postal code, it is
+        # strong enough evidence to correct an invalid WMS zipcode.
+        if len(sub_vals) == 1:
+            return sub_vals[0], "WMS_MISMATCH_SUBDISTRICT_CORRECTED"
+
+        # District-level unique fallback.
         if len(district_vals) == 1:
             return district_vals[0], "WMS_MISMATCH_DISTRICT_CORRECTED"
 
-        # Not enough information to safely replace the WMS value.
         return wms_postal, "WMS_UNVERIFIED"
 
     # ---------------------------------------------------------
-    # 4. No WMS zipcode: use geographic master data.
+    # 2. No WMS zipcode: use an address zipcode only when it can
+    #    be validated against the matched geographic area.
     # ---------------------------------------------------------
+    if address_in_subdistrict:
+        return address_in_subdistrict[-1], "ADDRESS_VALIDATED_SUBDISTRICT"
+
+    if address_in_district:
+        return address_in_district[-1], "ADDRESS_VALIDATED_DISTRICT"
+
     if len(sub_vals) == 1:
         return sub_vals[0], "EXACT_SUBDISTRICT"
 
     if len(district_vals) == 1:
         return district_vals[0], "DISTRICT_UNIQUE"
 
-    if len(district_vals) > 1:
-        return "", "DISTRICT_HAS_MULTIPLE_POSTAL_CODES"
+    # Keep an explicit address code only when we cannot validate it.
+    # This is preferable to silently inventing a different code.
+    if address_candidates:
+        return address_candidates[-1], "ADDRESS_UNVERIFIED"
 
     return "", "NO_POSTAL"
 
@@ -724,9 +744,12 @@ def resolve_row(row, geo, province_master, district_master):
             "WMS_VALIDATED_SUBDISTRICT",
             "WMS_VALIDATED_DISTRICT",
             "WMS_MISMATCH_ADDRESS_CORRECTED",
+            "WMS_MISMATCH_ADDRESS_SUBDISTRICT_CORRECTED",
             "WMS_MISMATCH_SUBDISTRICT_CORRECTED",
             "WMS_MISMATCH_DISTRICT_CORRECTED",
             "ADDRESS_EXPLICIT",
+            "ADDRESS_VALIDATED_SUBDISTRICT",
+            "ADDRESS_VALIDATED_DISTRICT",
             "EXACT_SUBDISTRICT",
             "DISTRICT_UNIQUE",
         } else postal_status
